@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Caption WebSocket Test</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      padding: 2rem;
+      background-color: #f9f9f9;
+    }
+    #subtitles {
+      margin-top: 20px;
+      padding: 1rem;
+      background-color: #222;
+      color: #0f0;
+      font-size: 1.5rem;
+      border-radius: 5px;
+      min-height: 50px;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>🧪 Caption Server Test</h1>
+  <p>Status: <span id="status">Connecting...</span></p>
+  <div id="subtitles">Waiting for captions...</div>
+
+  <script>
+    const statusSpan = document.getElementById("status");
+    const subtitlesDiv = document.getElementById("subtitles");
+
+    const ws = new WebSocket("ws://localhost:8765");
+
+    ws.onopen = () => {
+      console.log("✅ Connected to WebSocket server");
+      statusSpan.textContent = "Connected ✅";
+      subtitlesDiv.textContent = "Connected. Waiting for captions...";
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === "caption") {
+          console.log("📩 Caption:", data.text);
+          subtitlesDiv.textContent = data.text;
+        } else if (data.type === "connection") {
+          console.log("🔗 Server message:", data.status);
+        } else {
+          console.log("📦 Other data:", data);
+        }
+      } catch (e) {
+        console.error("❌ Failed to parse WebSocket message:", event.data);
+      }
+    };
+
+    ws.onerror = (e) => {
+      console.error("❌ WebSocket error:", e);
+      statusSpan.textContent = "WebSocket error ❌";
+    };
+
+    ws.onclose = () => {
+      console.warn("🔌 WebSocket connection closed");
+      statusSpan.textContent = "Disconnected 🔌";
+      subtitlesDiv.textContent = "Caption service disconnected.";
+    };
+  </script>
+
+</body>
+</html>
