@@ -1,65 +1,106 @@
 import asyncio
 import websockets
+import json
+import sounddevice as sd
+import numpy as np
+import tempfile
+import scipy.io.wavfile as wav
 import time
 from faster_whisper import WhisperModel
-import sounddevice as sd
-import scipy.io.wavfile as wav
-import tempfile
-import json
 
-# Initialize Whisper model with 'small' size for balance between performance and accuracy
-model = WhisperModel("small", compute_type="int8")
+# Load the whisper model (adjust size based on speed/accuracy needs)
+model = WhisperModel("small", compute_type="int8")  # or "tiny", "small"
 
-async def transcribe_audio():
-    # Record and transcribe audio in real-time
-    audio = record_chunk(duration=3, fs=16000)
-    with tempfile.NamedTemporaryFile(suffix=".wav") as f:
-        wav.write(f.name, 16000, audio)
-        segments, _ = model.transcribe(f.name)
-        for seg in segments:
-            return seg.text
-    return ""
-
-def record_chunk(duration, fs):
-    # Record audio chunk with specified duration and sample rate
+# Record audio from mic
+def record_audio_chunk(duration, fs):
+    print(f"🎤 Recording {duration} seconds of audio...")
     audio = sd.rec(int(duration * fs), samplerate=fs, channels=1, dtype='int16')
+    #print("Audio dtype:", audio.dtype, "Shape:", audio.shape, "Sample:", audio[0:10])
     sd.wait()
-    return audio
+    return audio, fs
 
-async def caption_stream(websocket):
+# Transcribe the recorded audio using faster-whisper
+def transcribe_audio(audio, fs):
+    text_segments = []
+    #print(f"📥 Raw audio shape: {audio.shape}, dtype: {audio.dtype}")
+
+    # ✅ Force to mono 1D shape
+    audio = np.squeeze(audio)
+    #print(f"✅ Squeezed audio shape: {audio.shape}, dtype after squeeze: {audio.dtype}")
+
+    # ✅ Ensure correct dtype
+    if audio.dtype != np.int16:
+        audio = (audio * 32767).astype(np.int16)
+        #print("✅ Converted audio to int16")
+
+    #print("🎧 First 10 samples:", audio[:10])
+
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as tmpfile:
+        wav.write(tmpfile.name, fs, audio)
+
+        segments, _ = model.transcribe(tmpfile.name)
+
+        for seg in segments:
+            print(f"📃 [{seg.start:.2f}s – {seg.end:.2f}s]: {seg.text}")
+            text_segments.append(seg.text)
+        #text = {seg.start:.2f}s – {seg.end:.2f}s]: {seg.text}
+        # if text:
+        #     print(f"📜 Final transcription: {text}")
+        # else:
+        #     print(f"⚠️ Low-confidence or short speech: '{text}'")
+        text = ''.join(text_segments).strip()
+        print(f"🧩 Combined text: {text}")
+        return text
+
+
+
+# Store all connected WebSocket clients
+connected_clients = set()
+
+# Handle individual WebSocket connection
+async def handle_client(websocket):
+    connected_clients.add(websocket)
+    print("✅ Client connected")
+
+    await websocket.send(json.dumps({
+        "type": "connection",
+        "status": "connected"
+    }))
+
     try:
-        # Send connection confirmation message
-        await websocket.send(json.dumps({
-            "type": "connection",
-            "status": "connected"
-        }))
-        
-        # Main caption loop
-        while True:
-            caption_text = await transcribe_audio()
-            if caption_text:
-                # Send caption data to client
-                await websocket.send(json.dumps({
-                    "type": "caption",
-                    "text": caption_text,
-                    "timestamp": time.time()
-                }))
-    except websockets.exceptions.ConnectionClosed:
-        # Handle client disconnection gracefully
+        async for _ in websocket:
+            pass  # Clients are passive listeners
+    except websockets.ConnectionClosed:
         pass
+    finally:
+        connected_clients.remove(websocket)
+        print("❌ Client disconnected")
 
+# Transcribe and broadcast in loop
+async def broadcaster():
+    while True:
+        audio, fs = record_audio_chunk(duration=4, fs=16000)
+        text = transcribe_audio(audio, fs)
+
+        if text:
+            message = json.dumps({
+                "type": "caption",
+                "text": text,
+                "timestamp": time.time()
+            })
+            print(f"📢 Broadcasting: {text}")
+            if connected_clients:
+                await asyncio.gather(*[client.send(message) for client in connected_clients])
+        else:
+            print("⚠️ No meaningful speech detected.")
+
+        await asyncio.sleep(0.1)
+
+# Start the WebSocket server and broadcaster
 async def main():
-    # Start WebSocket server with specific configurations
-    async with websockets.serve(
-        caption_stream,
-        "0.0.0.0",  # Allow connections from any IP
-        8765,       # Port number
-        ping_interval=None,  # Disable automatic ping
-        ping_timeout=None    # Disable ping timeout
-    ) as server:
-        print("🎙️ Caption server running on ws://0.0.0.0:8765")
-        await asyncio.Future()  # Keep server running indefinitely
+    print("🎙️ Caption server running on ws://0.0.0.0:8765")
+    async with websockets.serve(handle_client, "0.0.0.0", 8765):
+        await broadcaster()
 
 if __name__ == "__main__":
-    # Start the async event loop
     asyncio.run(main())
