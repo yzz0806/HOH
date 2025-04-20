@@ -3,7 +3,7 @@ import string
 
 def compare_files(file1_path, file2_path):
     """
-    Compares two .txt files line-by-line and calculates accuracy.
+    Compares two .txt files line-by-line and calculates word-level accuracy.
     The second file ignores timestamps at the beginning of each line.
     Capitalization and punctuation are also ignored.
     """
@@ -23,18 +23,23 @@ def compare_files(file1_path, file2_path):
             line = re.sub(r'\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\]\s*', '', line)
             return preprocess_text(line)
 
-        lines1 = [clean_line(line.strip()) for line in lines1]
-        lines2 = [clean_line(line.strip()) for line in lines2]
+        # Clean and split lines into words
+        lines1 = [clean_line(line.strip()).split() for line in lines1]
+        lines2 = [clean_line(line.strip()).split() for line in lines2]
 
-        # Calculate total lines and matching lines
-        total_lines = max(len(lines1), len(lines2))
-        matching_lines = sum(1 for l1, l2 in zip(lines1, lines2) if l1 == l2)
+        total_words = 0
+        matching_words = 0
+
+        # Compare each line individually
+        for words1, words2 in zip(lines1, lines2):
+            total_words += max(len(words1), len(words2))
+            matching_words += sum(1 for w1, w2 in zip(words1, words2) if w1 == w2)
 
         # Calculate accuracy
-        accuracy = (matching_lines / total_lines) * 100 if total_lines > 0 else 0
+        accuracy = (matching_words / total_words) * 100 if total_words > 0 else 0
 
-        print(f"Total Lines: {total_lines}")
-        print(f"Matching Lines: {matching_lines}")
+        print(f"Total Words: {total_words}")
+        print(f"Matching Words: {matching_words}")
         print(f"Accuracy: {accuracy:.2f}%")
 
     except FileNotFoundError as e:
