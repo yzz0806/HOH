@@ -1,9 +1,11 @@
 import re
+import string
 
 def compare_files(file1_path, file2_path):
     """
     Compares two .txt files word-for-word and calculates accuracy.
     The second file ignores timestamps at the beginning of each line.
+    Capitalization and punctuation are also ignored.
     """
     try:
         # Read the contents of both files
@@ -16,6 +18,13 @@ def compare_files(file1_path, file2_path):
                 # Remove the timestamp pattern [20xx-xx-xxTxx:xx:xx.xxxZ]
                 cleaned_line = re.sub(r'\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\]\s*', '', line)
                 text2.extend(cleaned_line.split())
+
+        # Preprocess text to ignore capitalization and punctuation
+        def preprocess_text(text):
+            return [word.lower().translate(str.maketrans('', '', string.punctuation)) for word in text]
+
+        text1 = preprocess_text(text1)
+        text2 = preprocess_text(text2)
 
         # Calculate total words and matching words
         total_words = max(len(text1), len(text2))
